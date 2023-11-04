@@ -14,14 +14,30 @@ fn main() -> std::io::Result<()> {
 
 struct Request {
     path: String,
+    user_agent: String,
 }
 
-impl<T: AsRef<str>> From<T> for Request {
-    fn from(string: T) -> Self {
-        let parts: Vec<_> = string.as_ref().split(" ").collect();
-        let path = parts[1].into();
+impl<T: AsRef<str>> From<Vec<T>> for Request {
+    fn from(strings: Vec<T>) -> Self {
+        let request_line: String = strings
+            .iter()
+            .map(|s| s.as_ref())
+            .filter(|s| s.starts_with("GET"))
+            .collect();
 
-        Request { path }
+        let request_parts: Vec<_> = request_line.split(" ").collect();
+        let path: String = request_parts[1].into();
+
+        let user_agent_line: String = strings
+            .iter()
+            .map(|s| s.as_ref())
+            .filter(|s| s.starts_with("User-Agent"))
+            .collect();
+
+        let user_agent_parts: Vec<_> = user_agent_line.split(" ").collect();
+        let user_agent: String = user_agent_parts[1].into();
+
+        Request { path, user_agent }
     }
 }
 
@@ -53,25 +69,23 @@ impl HttpResponse {
 
 impl Request {
     fn handle_route(self) -> HttpResponse {
+        println!("{}", self.path);
         if self.path == "/" {
             return HttpResponse::Ok(None);
         }
 
-        if let Some((path, params)) = self
-            .path
-            .chars()
-            .skip(1)
-            .collect::<String>()
-            .split_once("/")
-        {
-            println!("path={path}, params={params}");
-            return match path {
-                "echo" => HttpResponse::Ok(Some(String::from(params))),
-                _ => HttpResponse::NotFound,
-            };
-        };
+        let mut parts: Vec<&str> = self.path.split("/").filter(|s| !s.is_empty()).collect();
 
-        return HttpResponse::NotFound;
+        if parts.is_empty() {
+            return HttpResponse::NotFound;
+        }
+
+        let first = parts.remove(0);
+        return match first {
+            "echo" => HttpResponse::Ok(Some(String::from(parts.join("/")))),
+            "user-agent" => HttpResponse::Ok(Some(String::from(self.user_agent))),
+            _ => HttpResponse::NotFound,
+        };
     }
 }
 
@@ -85,13 +99,8 @@ fn handle_connection(mut stream: TcpStream) {
 
     println!("Request: {:#?}", http_request);
 
-    let response = match http_request.first() {
-        Some(x) => {
-            let request = Request::from(x);
-            request.handle_route()
-        }
-        None => HttpResponse::NotFound,
-    };
+    let request = Request::from(http_request);
+    let response = request.handle_route();
 
     stream.write_all(response.to_string().as_bytes()).unwrap();
 }
