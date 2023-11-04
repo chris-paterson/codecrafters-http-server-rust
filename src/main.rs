@@ -4,6 +4,7 @@ use std::net::{TcpListener, TcpStream};
 fn main() -> std::io::Result<()> {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+    listener.set_nonblocking(true);
 
     for stream in listener.incoming() {
         handle_connection(stream?);
