@@ -69,7 +69,6 @@ impl HttpResponse {
 
 impl Request {
     fn handle_route(self) -> HttpResponse {
-        println!("{}", self.path);
         if self.path == "/" {
             return HttpResponse::Ok(None);
         }
