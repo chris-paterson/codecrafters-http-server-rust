@@ -136,7 +136,10 @@ impl Request {
 
                         match fs::read_to_string(files_dir) {
                             Err(_) => return HttpResponse::NotFound,
-                            Ok(content) => return HttpResponse::File(content.as_bytes().into()),
+                            Ok(content) => {
+                                println!("Content: {}", content);
+                                return HttpResponse::File(content.as_bytes().into());
+                            }
                         }
                     }
                 };
