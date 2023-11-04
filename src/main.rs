@@ -38,6 +38,9 @@ impl Request {
         let parts: Vec<_> = self.path.split("/").filter(|s| !s.is_empty()).collect();
         println!("{:?}", parts);
         if parts[0] == "echo" {
+            if parts.len() == 1 {
+                return "HTTP/1.1 404 Not Found\r\n\r\n".into();
+            }
             let param = parts[1];
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}\r\n",
