@@ -25,31 +25,53 @@ impl<T: AsRef<str>> From<T> for Request {
     }
 }
 
-impl Request {
-    fn handle_valid_path(self) -> String {
-        if self.path == "/" {
-            "HTTP/1.1 200 OK\r\n\r\n".into()
-        } else {
-            "HTTP/1.1 404 Not Found\r\n\r\n".into()
+enum HttpResponse {
+    NotFound,
+
+    /// body
+    Ok(Option<String>),
+}
+
+impl HttpResponse {
+    fn to_string(&self) -> String {
+        match self {
+            HttpResponse::NotFound => String::from("HTTP/1.1 404 Not Found\r\n\r\n"),
+            HttpResponse::Ok(body) => match body {
+                None => return String::from("HTTP/1.1 200 OK\r\n\r\n"),
+                Some(body) => {
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}",
+                        body.len()
+                    );
+                    let body = format!("{}", body);
+                    return format!("{}\r\n\r\n{}", header, body);
+                }
+            },
         }
     }
+}
 
-    fn handle_echo(self) -> String {
-        let parts: Vec<_> = self.path.split("/").filter(|s| !s.is_empty()).collect();
-        println!("{:?}", parts);
-        if parts[0] == "echo" {
-            if parts.len() == 1 {
-                return "HTTP/1.1 404 Not Found\r\n\r\n".into();
-            }
-            let param = parts[1];
-            let resp = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}\r\n",
-                param.len(),
-                param
-            );
-            return resp.into();
+impl Request {
+    fn handle_route(self) -> HttpResponse {
+        if self.path == "/" {
+            return HttpResponse::Ok(None);
         }
-        return "HTTP/1.1 404 Not Found\r\n\r\n".into();
+
+        if let Some((path, params)) = self
+            .path
+            .chars()
+            .skip(1)
+            .collect::<String>()
+            .split_once("/")
+        {
+            println!("path={path}, params={params}");
+            return match path {
+                "echo" => HttpResponse::Ok(Some(String::from(params))),
+                _ => HttpResponse::NotFound,
+            };
+        };
+
+        return HttpResponse::NotFound;
     }
 }
 
@@ -66,11 +88,10 @@ fn handle_connection(mut stream: TcpStream) {
     let response = match http_request.first() {
         Some(x) => {
             let request = Request::from(x);
-            //request.handle_valid_path()
-            request.handle_echo()
+            request.handle_route()
         }
-        None => "HTTP/1.1 404 Not Found\r\n\r\n".into(),
+        None => HttpResponse::NotFound,
     };
 
-    stream.write_all(response.as_bytes()).unwrap();
+    stream.write_all(response.to_string().as_bytes()).unwrap();
 }
