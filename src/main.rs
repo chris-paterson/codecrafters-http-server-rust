@@ -27,6 +27,20 @@ fn handle_connection(mut stream: TcpStream) {
 
     println!("Request: {:#?}", http_request);
 
-    let response = "HTTP/1.1 200 OK\r\n\r\n";
-    stream.write_all(response.as_bytes()).unwrap();
+    let response = match http_request.first() {
+        Some(x) => {
+            // GET /index.html HTTP/1.1
+            let parts: Vec<_> = x.split(" ").collect();
+            let path = parts[1];
+
+            if path == "/" {
+                "HTTP/1.1 200 OK\r\n\r\n"
+            } else {
+                "HTTP/1.1 404 Not Found\r\n\r\n"
+            }
+        }
+        None => "HTTP/1.1 404 Not Found\r\n\r\n",
+    };
+
+    stream.write_all(String::from(response).as_bytes()).unwrap();
 }
