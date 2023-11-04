@@ -43,7 +43,13 @@ impl<T: AsRef<str>> From<Vec<T>> for Request {
 
         let user_agent: Option<String> = match user_agent_parts.is_empty() {
             true => None,
-            false => Some(user_agent_parts[1].into()),
+            false => {
+                if user_agent_parts.len() > 1 {
+                    Some(user_agent_parts[1].into())
+                } else {
+                    None
+                }
+            }
         };
 
         Request { path, user_agent }
