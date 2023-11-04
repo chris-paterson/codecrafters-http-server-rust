@@ -81,7 +81,7 @@ enum HttpResponse {
     /// body
     Ok(Option<String>),
 
-    File(Vec<u8>),
+    File(String),
 }
 
 impl HttpResponse {
@@ -99,12 +99,12 @@ impl HttpResponse {
                     return format!("{}\r\n\r\n{}", header, body);
                 }
             },
-            HttpResponse::File(data) => {
+            HttpResponse::File(content) => {
                 let header = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}",
-                        data.len()
+                        content.len()
                     );
-                let body = format!("{:?}", data);
+                let body = format!("{}", content);
                 return format!("{}\r\n\r\n{}", header, body);
             }
         }
@@ -137,7 +137,7 @@ impl Request {
                         match fs::read_to_string(files_dir) {
                             Err(_) => return HttpResponse::NotFound,
                             Ok(content) => {
-                                return HttpResponse::Ok(Some(content));
+                                return HttpResponse::File(content);
                             }
                         }
                     }
