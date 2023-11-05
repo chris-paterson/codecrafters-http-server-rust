@@ -41,7 +41,6 @@ struct Request {
     method: String,
     path: String,
     user_agent: Option<String>,
-    content_length: usize,
     body: String,
 }
 
@@ -76,20 +75,10 @@ impl Request {
             }
         };
 
-        let content_length_line: String = header_lines
-            .iter()
-            .map(|s| s.as_ref())
-            .filter(|s| s.starts_with("Content-Length"))
-            .collect();
-
-        let content_length_parts: Vec<_> = content_length_line.split(" ").collect();
-        let content_length = content_length_parts[1].parse::<usize>().unwrap_or(0);
-
         Request {
             method,
             path,
             user_agent,
-            content_length,
             body,
         }
     }
