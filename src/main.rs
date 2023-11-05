@@ -1,7 +1,8 @@
 use itertools::Itertools;
+use std::io::Write;
 use std::path::PathBuf;
 use std::{env, fs};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Clone, Debug)]
@@ -37,22 +38,26 @@ async fn main() -> std::io::Result<()> {
 }
 
 struct Request {
+    method: String,
     path: String,
     user_agent: Option<String>,
+    content_length: usize,
+    body: String,
 }
 
-impl<T: AsRef<str>> From<Vec<T>> for Request {
-    fn from(strings: Vec<T>) -> Self {
-        let request_line: String = strings
+impl Request {
+    pub fn new<T: AsRef<str>>(header_lines: Vec<T>, body: String) -> Self {
+        let request_line: String = header_lines
             .iter()
             .map(|s| s.as_ref())
-            .filter(|s| s.starts_with("GET"))
+            .filter(|s| s.starts_with("GET") || s.starts_with("POST"))
             .collect();
 
         let request_parts: Vec<_> = request_line.split(" ").collect();
+        let method: String = request_parts[0].into();
         let path: String = request_parts[1].into();
 
-        let user_agent_line: String = strings
+        let user_agent_line: String = header_lines
             .iter()
             .map(|s| s.as_ref())
             .filter(|s| s.starts_with("User-Agent"))
@@ -71,7 +76,22 @@ impl<T: AsRef<str>> From<Vec<T>> for Request {
             }
         };
 
-        Request { path, user_agent }
+        let content_length_line: String = header_lines
+            .iter()
+            .map(|s| s.as_ref())
+            .filter(|s| s.starts_with("Content-Length"))
+            .collect();
+
+        let content_length_parts: Vec<_> = content_length_line.split(" ").collect();
+        let content_length = content_length_parts[1].parse::<usize>().unwrap_or(0);
+
+        Request {
+            method,
+            path,
+            user_agent,
+            content_length,
+            body,
+        }
     }
 }
 
@@ -82,12 +102,15 @@ enum HttpResponse {
     Ok(Option<String>),
 
     File(String),
+
+    Created,
 }
 
 impl HttpResponse {
     fn to_string(&self) -> String {
         match self {
             HttpResponse::NotFound => String::from("HTTP/1.1 404 Not Found\r\n\r\n"),
+            HttpResponse::Created => return String::from("HTTP/1.1 201 Created\r\n\r\n"),
             HttpResponse::Ok(body) => match body {
                 None => return String::from("HTTP/1.1 200 OK\r\n\r\n"),
                 Some(body) => {
@@ -113,6 +136,14 @@ impl HttpResponse {
 
 impl Request {
     fn handle_route(self, env: &ProgramEnv) -> HttpResponse {
+        match self.method.as_ref() {
+            "GET" => self.handle_get(env),
+            "POST" => self.handle_post(env),
+            _ => HttpResponse::NotFound,
+        }
+    }
+
+    fn handle_get(self, env: &ProgramEnv) -> HttpResponse {
         if self.path == "/" {
             return HttpResponse::Ok(None);
         }
@@ -146,27 +177,60 @@ impl Request {
             _ => HttpResponse::NotFound,
         };
     }
+
+    fn handle_post(self, env: &ProgramEnv) -> HttpResponse {
+        let mut parts: Vec<&str> = self.path.split("/").filter(|s| !s.is_empty()).collect();
+        let first = parts.remove(0);
+
+        return match first {
+            "files" => match env.files_dir.clone() {
+                None => return HttpResponse::NotFound,
+                Some(mut files_dir) => {
+                    let filename = parts.join("/");
+                    files_dir.push(&filename);
+                    let result = fs::File::create(files_dir)
+                        .and_then(|mut file| file.write_all(self.body.as_bytes()));
+
+                    match result {
+                        Ok(_) => return HttpResponse::Created,
+                        Err(_) => return HttpResponse::NotFound,
+                    };
+                }
+            },
+            _ => HttpResponse::NotFound,
+        };
+    }
 }
 
 async fn handle_connection(mut stream: TcpStream, env: ProgramEnv) -> std::io::Result<()> {
-    let buf_reader = BufReader::new(&mut stream);
-    let mut lines = buf_reader.lines();
+    let mut buffer = [0u8; 1024];
+    loop {
+        match stream.read(&mut buffer).await {
+            Err(e) => return Err(e),
+            Ok(0) => break,
+            Ok(bytes_read) => {
+                let content = String::from_utf8_lossy(&buffer[..bytes_read]);
 
-    let mut http_request = Vec::new();
+                let Some((headers, body)) = content.split_once("\r\n\r\n") else {
+                    let response = HttpResponse::NotFound;
+                    stream.write_all(response.to_string().as_bytes()).await?;
+                    return Ok(());
+                };
 
-    while let Some(line) = lines.next_line().await? {
-        if line.is_empty() {
-            break;
+                let header_lines: Vec<_> = headers.split("\r\n").map(|l| l.to_string()).collect();
+                println!(
+                    "Received data: headers = {:#?}\nbody = {:#?}",
+                    header_lines, body
+                );
+
+                let request = Request::new(header_lines, body.into());
+                let response = request.handle_route(&env);
+                stream.write_all(response.to_string().as_bytes()).await?;
+
+                break;
+            }
         }
-        http_request.push(line);
     }
-
-    println!("Env: {:?}\nRequest: {:#?}", env, http_request);
-
-    let request = Request::from(http_request);
-    let response = request.handle_route(&env);
-
-    stream.write_all(response.to_string().as_bytes()).await?;
 
     Ok(())
 }
