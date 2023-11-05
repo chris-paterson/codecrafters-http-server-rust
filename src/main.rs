@@ -188,33 +188,28 @@ impl Request {
 
 async fn handle_connection(mut stream: TcpStream, env: ProgramEnv) -> std::io::Result<()> {
     let mut buffer = [0u8; 1024];
-    loop {
-        match stream.read(&mut buffer).await {
-            Err(e) => return Err(e),
-            Ok(0) => break,
-            Ok(bytes_read) => {
-                let content = String::from_utf8_lossy(&buffer[..bytes_read]);
+    match stream.read(&mut buffer).await {
+        Err(e) => Err(e),
+        Ok(0) => Ok(()),
+        Ok(bytes_read) => {
+            let content = String::from_utf8_lossy(&buffer[..bytes_read]);
 
-                let Some((headers, body)) = content.split_once("\r\n\r\n") else {
+            let Some((headers, body)) = content.split_once("\r\n\r\n") else {
                     let response = HttpResponse::NotFound;
                     stream.write_all(response.to_string().as_bytes()).await?;
                     return Ok(());
                 };
 
-                let header_lines: Vec<_> = headers.split("\r\n").map(|l| l.to_string()).collect();
-                println!(
-                    "Received data: headers = {:#?}\nbody = {:#?}",
-                    header_lines, body
-                );
+            let header_lines: Vec<_> = headers.split("\r\n").map(|l| l.to_string()).collect();
+            println!(
+                "Received data: headers = {:#?}\nbody = {:#?}",
+                header_lines, body
+            );
 
-                let request = Request::new(header_lines, body.into());
-                let response = request.handle_route(&env);
-                stream.write_all(response.to_string().as_bytes()).await?;
-
-                break;
-            }
-        };
+            let request = Request::new(header_lines, body.into());
+            let response = request.handle_route(&env);
+            stream.write_all(response.to_string().as_bytes()).await?;
+            Ok(())
+        }
     }
-
-    Ok(())
 }
