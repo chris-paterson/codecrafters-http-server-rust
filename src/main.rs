@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use std::io::Write;
 use std::path::PathBuf;
-use std::{env, fs};
+use std::{env, fmt, fs};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -52,7 +52,7 @@ impl Request {
             .filter(|s| s.starts_with("GET") || s.starts_with("POST"))
             .collect();
 
-        let request_parts: Vec<_> = request_line.split(" ").collect();
+        let request_parts: Vec<_> = request_line.split(' ').collect();
         let method: String = request_parts[0].into();
         let path: String = request_parts[1].into();
 
@@ -62,7 +62,7 @@ impl Request {
             .filter(|s| s.starts_with("User-Agent"))
             .collect();
 
-        let user_agent_parts: Vec<_> = user_agent_line.split(" ").collect();
+        let user_agent_parts: Vec<_> = user_agent_line.split(' ').collect();
 
         let user_agent: Option<String> = match user_agent_parts.is_empty() {
             true => None,
@@ -95,20 +95,19 @@ enum HttpResponse {
     Created,
 }
 
-impl HttpResponse {
-    fn to_string(&self) -> String {
-        match self {
-            HttpResponse::NotFound => String::from("HTTP/1.1 404 Not Found\r\n\r\n"),
-            HttpResponse::Created => return String::from("HTTP/1.1 201 Created\r\n\r\n"),
+impl fmt::Display for HttpResponse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let response = match self {
+            HttpResponse::NotFound => "HTTP/1.1 404 Not Found\r\n\r\n".to_string(),
+            HttpResponse::Created => "HTTP/1.1 201 Created\r\n\r\n".to_string(),
             HttpResponse::Ok(body) => match body {
-                None => return String::from("HTTP/1.1 200 OK\r\n\r\n"),
+                None => "HTTP/1.1 200 OK\r\n\r\n".to_string(),
                 Some(body) => {
                     let header = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}",
                         body.len()
                     );
-                    let body = format!("{}", body);
-                    return format!("{}\r\n\r\n{}", header, body);
+                    format!("{}\r\n\r\n{}", header, body)
                 }
             },
             HttpResponse::File(content) => {
@@ -116,10 +115,10 @@ impl HttpResponse {
                         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}",
                         content.len()
                     );
-                let body = format!("{}", content);
-                return format!("{}\r\n\r\n{}", header, body);
+                format!("{}\r\n\r\n{}", header, content)
             }
-        }
+        };
+        write!(f, "{}", response)
     }
 }
 
@@ -137,43 +136,39 @@ impl Request {
             return HttpResponse::Ok(None);
         }
 
-        let mut parts: Vec<&str> = self.path.split("/").filter(|s| !s.is_empty()).collect();
+        let mut parts: Vec<&str> = self.path.split('/').filter(|s| !s.is_empty()).collect();
 
         if parts.is_empty() {
             return HttpResponse::NotFound;
         }
 
         let first = parts.remove(0);
-        return match first {
-            "echo" => HttpResponse::Ok(Some(String::from(parts.join("/")))),
-            "user-agent" => HttpResponse::Ok(Some(String::from(self.user_agent.unwrap()))),
-            "files" => {
-                match env.files_dir.clone() {
-                    None => return HttpResponse::NotFound,
-                    Some(mut files_dir) => {
-                        let filename = parts.join("/");
-                        files_dir.push(&filename);
+        match first {
+            "echo" => HttpResponse::Ok(Some(parts.join("/"))),
+            "user-agent" => HttpResponse::Ok(Some(self.user_agent.unwrap())),
+            "files" => match env.files_dir.clone() {
+                None => HttpResponse::NotFound,
+                Some(mut files_dir) => {
+                    let filename = parts.join("/");
+                    files_dir.push(&filename);
 
-                        match fs::read_to_string(files_dir) {
-                            Err(_) => return HttpResponse::NotFound,
-                            Ok(content) => {
-                                return HttpResponse::File(content);
-                            }
-                        }
+                    match fs::read_to_string(files_dir) {
+                        Err(_) => HttpResponse::NotFound,
+                        Ok(content) => HttpResponse::File(content),
                     }
-                };
-            }
+                }
+            },
             _ => HttpResponse::NotFound,
-        };
+        }
     }
 
     fn handle_post(self, env: &ProgramEnv) -> HttpResponse {
-        let mut parts: Vec<&str> = self.path.split("/").filter(|s| !s.is_empty()).collect();
+        let mut parts: Vec<&str> = self.path.split('/').filter(|s| !s.is_empty()).collect();
         let first = parts.remove(0);
 
-        return match first {
+        match first {
             "files" => match env.files_dir.clone() {
-                None => return HttpResponse::NotFound,
+                None => HttpResponse::NotFound,
                 Some(mut files_dir) => {
                     let filename = parts.join("/");
                     files_dir.push(&filename);
@@ -181,13 +176,13 @@ impl Request {
                         .and_then(|mut file| file.write_all(self.body.as_bytes()));
 
                     match result {
-                        Ok(_) => return HttpResponse::Created,
-                        Err(_) => return HttpResponse::NotFound,
-                    };
+                        Ok(_) => HttpResponse::Created,
+                        Err(_) => HttpResponse::NotFound,
+                    }
                 }
             },
             _ => HttpResponse::NotFound,
-        };
+        }
     }
 }
 
@@ -218,7 +213,7 @@ async fn handle_connection(mut stream: TcpStream, env: ProgramEnv) -> std::io::R
 
                 break;
             }
-        }
+        };
     }
 
     Ok(())
